@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mini Live Room (Firebase)</title>
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#F4F1F8; --card:#FFFFFF; --ink:#1B1230; --muted:#6E6483; --line:#DDD5EA;
+  --accent:#E8335D; --gold:#B7860B; --stage1:#4B2A8F; --stage2:#E8335D;
+  --bubble:#EFEAF7; --mine:#FBDDE5;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#140D22; --card:#1F1533; --ink:#F3EEFB; --muted:#A99EC2; --line:#33264E;
+    --accent:#FF5C80; --gold:#F5C542; --bubble:#2A1E44; --mine:#4A2142;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#140D22; --card:#1F1533; --ink:#F3EEFB; --muted:#A99EC2; --line:#33264E;
+  --accent:#FF5C80; --gold:#F5C542; --bubble:#2A1E44; --mine:#4A2142;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);display:flex;flex-direction:column;
+  font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;line-height:1.4;overflow:hidden}
+.stage{position:relative;flex:0 0 36%;min-height:190px;color:#fff;
+  background:linear-gradient(160deg,var(--stage1),var(--stage2));
+  display:flex;align-items:center;justify-content:center;overflow:hidden}
+.host{text-align:center}
+.avatar{width:84px;height:84px;border-radius:50%;background:rgba(255,255,255,.22);
+  border:3px solid #fff;display:grid;place-items:center;font-size:38px;font-weight:700;margin:0 auto 8px}
+.host b{font-size:20px}
+.host small{display:block;opacity:.85}
+.pill{position:absolute;top:10px;padding:5px 11px;border-radius:99px;font-size:13px;font-weight:700;background:rgba(0,0,0,.4)}
+.live{left:12px;background:#E8335D}
+.views{right:12px}
+.gifts-total{position:absolute;left:12px;bottom:10px;background:rgba(0,0,0,.4);padding:5px 11px;border-radius:99px;font-size:13px}
+.fly{position:absolute;bottom:20px;font-size:44px;pointer-events:none;animation:up 2.4s ease-out forwards}
+@keyframes up{0%{transform:translateY(0) scale(.6);opacity:1}100%{transform:translateY(-150px) scale(1.4);opacity:0}}
+@media (prefers-reduced-motion:reduce){.fly{animation:none;opacity:.9}}
+.note{font-size:12px;color:var(--muted);padding:6px 14px;border-bottom:1px solid var(--line)}
+#chat{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:7px}
+.msg{max-width:85%;background:var(--bubble);padding:7px 11px;border-radius:14px;word-wrap:break-word}
+.msg.me{align-self:flex-end;background:var(--mine)}
+.msg b{font-size:12px;color:var(--accent);display:block}
+.sys{align-self:center;font-size:13px;color:var(--gold);font-weight:700}
+.tray{display:flex;gap:8px;padding:8px 12px 0;align-items:center}
+.coins{font-weight:700;color:var(--gold);margin-right:auto}
+.gift{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:12px;
+  padding:6px 10px;font:inherit;cursor:pointer;text-align:center;line-height:1.2}
+.gift small{display:block;color:var(--muted);font-size:11px}
+.gift:disabled{opacity:.4;cursor:not-allowed}
+form,.row{display:flex;gap:8px;padding:10px 12px 12px}
+input{flex:1;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;min-width:0}
+.send{background:var(--accent);color:#fff;border:0;border-radius:12px;padding:0 18px;font:inherit;font-weight:700;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+  <span class="pill live">LIVE</span>
+  <span class="pill views" id="views">💬 0 chatting</span>
+  <div class="host">
+    <div class="avatar">K</div>
+    <b>DJ Kemi</b>
+    <small>Video go enter here later</small>
+  </div>
+  <div class="gifts-total">💎 <span id="diamonds">0</span> diamonds earned</div>
+</div>
+
+<div class="note" id="note">Connecting…</div>
+<div id="chat" aria-live="polite"></div>
+
+<div class="tray" id="tray">
+  <span class="coins">🪙 <span id="coins">100</span></span>
+</div>
+<div class="row">
+  <input id="text" maxlength="140" placeholder="Say something…" aria-label="Chat message">
+  <button class="send" id="send">Send</button>
+</div>
+
+<script type="module">
+/* ===== 1. YOUR FIREBASE KEYS: paste from Firebase console > Project settings ===== */
+const firebaseConfig = {
+  apiKey: "AIzaSyAxy7oahYK66uNx8zMjCPr6zLwdv_nxfkk",
+  authDomain: "mini-live-room.firebaseapp.com",
+  projectId: "mini-live-room",
+  appId: "1:466259605164:web:457b3807af88dfb8cb9109"
+};
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, addDoc, query, orderBy, limitToLast, onSnapshot, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+/* ===== 2. SETTINGS ===== */
+const GIFTS = [
+  { icon: "🌹", name: "Rose", cost: 10 },
+  { icon: "🚗", name: "Car",  cost: 50 },
+  { icon: "🦁", name: "Lion", cost: 100 }
+];
+const START_COINS = 100;
+const $ = id => document.getElementById(id);
+const chatEl = $("chat");
+
+/* ===== 3. MEMORY ===== */
+const myName = "Viewer" + Math.floor(100 + Math.random() * 900);
+let coins = START_COINS, diamonds = 0, myUid = null, db = null, firstLoad = true;
+const chatters = new Set();
+
+/* ===== 4. SHOW THINGS ===== */
+function addMsg(who, text, mine){
+  const d = document.createElement("div");
+  d.className = "msg" + (mine ? " me" : "");
+  const b = document.createElement("b");
+  b.textContent = mine ? "You" : who;
+  d.append(b, document.createTextNode(text));
+  chatEl.appendChild(d);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+function addSys(text){
+  const d = document.createElement("div");
+  d.className = "sys";
+  d.textContent = text;
+  chatEl.appendChild(d);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+function fly(icon){
+  const s = document.createElement("span");
+  s.className = "fly";
+  s.textContent = icon;
+  s.style.left = (15 + Math.random() * 70) + "%";
+  $("stage").appendChild(s);
+  setTimeout(() => s.remove(), 2400);
+}
+function refresh(){
+  $("coins").textContent = coins;
+  $("diamonds").textContent = diamonds;
+  $("views").textContent = "💬 " + chatters.size + " chatting";
+  document.querySelectorAll(".gift").forEach((b, i) => b.disabled = !db || coins < GIFTS[i].cost);
+}
+
+/* ===== 5. SEND TO THE DATABASE ===== */
+// Every message and gift is one "document" in the collection rooms/main/messages
+async function post(data){
+  if (!db) return;
+  await addDoc(collection(db, "rooms", "main", "messages"), {
+    uid: myUid, who: myName, createdAt: serverTimestamp(), ...data
+  });
+}
+function sendText(){
+  const t = $("text").value.trim();
+  if (!t) return;
+  $("text").value = "";
+  post({ type: "chat", text: t.slice(0, 140) }).catch(() => addSys("Message no go. Check your internet."));
+}
+$("send").onclick = sendText;
+$("text").addEventListener("keydown", e => { if (e.key === "Enter") sendText(); });
+
+GIFTS.forEach(g => {
+  const b = document.createElement("button");
+  b.className = "gift";
+  b.innerHTML = g.icon + "<small>" + g.cost + " 🪙</small>";
+  b.setAttribute("aria-label", "Send " + g.name + " for " + g.cost + " coins");
+  b.onclick = () => {
+    if (coins < g.cost) return;
+    coins -= g.cost;
+    refresh();
+    post({ type: "gift", icon: g.icon, cost: g.cost }).catch(() => { coins += g.cost; refresh(); });
+  };
+  $("tray").appendChild(b);
+});
+
+/* ===== 6. LISTEN: the database tells every phone when something new arrives ===== */
+function listen(){
+  const q = query(collection(db, "rooms", "main", "messages"), orderBy("createdAt"), limitToLast(50));
+  onSnapshot(q, snap => {
+    snap.docChanges().forEach(ch => {
+      if (ch.type !== "added") return;
+      const m = ch.doc.data();
+      const mine = m.uid === myUid;
+      chatters.add(m.uid);
+      if (m.type === "chat") {
+        addMsg(String(m.who || "Guest").slice(0, 20), String(m.text || "").slice(0, 140), mine);
+      } else if (m.type === "gift") {
+        const g = GIFTS.find(x => x.icon === m.icon);
+        if (!g) return;
+        diamonds += g.cost;
+        addSys((mine ? "You" : String(m.who || "Guest").slice(0, 20)) + " sent " + g.icon + " " + g.name);
+        if (!firstLoad) fly(g.icon);
+      }
+    });
+    firstLoad = false;
+    refresh();
+  }, () => addSys("Cannot read chat. Check your Firestore rules."));
+}
+
+/* ===== 7. START ===== */
+if (firebaseConfig.apiKey === "PASTE_HERE") {
+  $("note").textContent = "Setup needed: paste your Firebase keys at the top of the code.";
+  addSys("Chat is off until Firebase keys dey inside.");
+  refresh();
+} else {
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  db = getFirestore(app);
+  onAuthStateChanged(auth, user => {
+    if (!user) return;
+    myUid = user.uid;
+    $("note").textContent = "Live: everybody wey open this page dey chat together.";
+    addSys("Welcome! You get " + START_COINS + " free coins to send gifts.");
+    listen();
+    refresh();
+  });
+  signInAnonymously(auth).catch(() => { $("note").textContent = "Sign-in failed. Turn on Anonymous sign-in in Firebase."; });
+}
+</script>
+</body>
+</html>
